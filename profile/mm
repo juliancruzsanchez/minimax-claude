@@ -1,0 +1,30 @@
+#!/bin/sh
+# MiniMax Code: Claude Code's terminal agent running on MiniMax models.
+#
+# The same program as `claude`, pointed at MiniMax's API, with the key held
+# by the keychain (macOS) or by ~/.config/minimax/api_key (Linux).
+set -eu
+
+CLAUDE="${MINIMAX_CLAUDE_BIN:-$HOME/.local/bin/claude}"
+PROFILE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+if [ ! -x "$CLAUDE" ]; then
+  CLAUDE=$(command -v claude 2>/dev/null || true)
+fi
+
+if [ -z "$CLAUDE" ] || [ ! -x "$CLAUDE" ]; then
+  echo "Claude Code is not installed. Install it with:" >&2
+  echo "  curl -fsSL https://claude.ai/install.sh | bash" >&2
+  exit 1
+fi
+
+export CLAUDE_CONFIG_DIR="$PROFILE"
+export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-https://api.minimax.io/anthropic}"
+export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-MiniMax-M3}"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="${ANTHROPIC_DEFAULT_OPUS_MODEL:-MiniMax-M3}"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="${ANTHROPIC_DEFAULT_SONNET_MODEL:-MiniMax-M3.1-Flash}"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="${ANTHROPIC_DEFAULT_HAIKU_MODEL:-MiniMax-M3.1-Flash}"
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-1000000}"
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW="${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-800000}"
+
+exec "$CLAUDE" "$@"

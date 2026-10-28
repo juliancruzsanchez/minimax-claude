@@ -1,0 +1,30 @@
+{
+  "_comment": "Policy for minimax-sync. Edit freely: minimax-sync reads it on every run.",
+  "default_model": "MiniMax-M3",
+  "opus": "MiniMax-M3",
+  "sonnet": "MiniMax-M3.1-Flash",
+  "haiku": "MiniMax-M3.1-Flash",
+  "models": {
+    "MiniMax-M3": {
+      "context": 512000,
+      "output": 128000,
+      "windows": [512000, 1000000]
+    },
+    "MiniMax-M3.1-Flash": {
+      "context": 512000,
+      "output": 128000,
+      "windows": [512000, 1000000]
+    },
+    "MiniMax-M2.7": {
+      "context": 204800,
+      "output": 131072,
+      "windows": [204800]
+    },
+    "MiniMax-M2.7-highspeed": {
+      "context": 204800,
+      "output": 131072,
+      "windows": [204800]
+    }
+  },
+  "legacy_pattern": "^MiniMax-M2(\\.\\d+)?(-highspeed)?$"
+}

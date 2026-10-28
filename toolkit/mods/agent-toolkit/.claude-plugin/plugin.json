@@ -1,0 +1,7 @@
+{
+  "name": "agent-toolkit",
+  "version": "1.0.0",
+  "description": "Shared agent setup: global rules, the session-context hook, the clauditor hook and the shared skill store.",
+  "author": { "name": "JC Sanchez" },
+  "keywords": ["rules", "hooks", "skills", "shared"]
+}

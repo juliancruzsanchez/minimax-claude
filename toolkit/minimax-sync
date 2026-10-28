@@ -1,0 +1,534 @@
+#!/usr/bin/env python3
+"""Keep every agent's MiniMax model list in step with what MiniMax serves.
+
+Reads the model list from MiniMax's API and writes it into the places that
+pin models by hand:
+
+  mcode            ~/.minimax/config.yaml      (MiniMax Code)
+  claude           ~/.claude/settings.json     (Claude Code on MiniMax)
+  grok             ~/.grok/config.toml         (Grok Build)
+
+Every write keeps a timestamped backup next to the file it replaced.
+
+    minimax-sync                 apply the current list
+    minimax-sync --check         report drift, exit 1 when something is stale
+    minimax-sync --dry-run       show what would change
+    minimax-sync --verify        ask the API for a token on every model
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+DEFAULT_BASE_URL = "https://api.minimax.io"
+ANTHROPIC_BASE = DEFAULT_BASE_URL + "/anthropic"
+
+HOME = os.path.expanduser("~")
+MCODE_CONFIG = os.path.join(HOME, ".minimax", "config.yaml")
+CLAUDE_SETTINGS = os.path.join(HOME, ".claude", "settings.json")
+GROK_CONFIG = os.path.join(HOME, ".grok", "config.toml")
+POLICY_FILE = os.path.join(HOME, ".minimax-tools", "models-policy.json")
+
+# Context windows and output caps for the models MiniMax serves. The API does
+# not publish these, so they are kept here and refreshed by hand when a new
+# model lands with a different window.
+MODEL_META = {
+    "MiniMax-M3": {"context": 512000, "output": 128000, "windows": [512000, 1000000]},
+    "MiniMax-M3.1-Flash": {
+        "context": 512000,
+        "output": 128000,
+        "windows": [512000, 1000000],
+    },
+    "MiniMax-M2.7": {"context": 204800, "output": 131072, "windows": [204800]},
+    "MiniMax-M2.7-highspeed": {
+        "context": 204800,
+        "output": 131072,
+        "windows": [204800],
+    },
+}
+DEFAULT_META = {"context": 204800, "output": 32768, "windows": [204800]}
+
+# Models MiniMax still serves but that the profile does not offer by default.
+LEGACY_PATTERN = re.compile(r"^MiniMax-M2(\.\d+)?(-highspeed)?$")
+
+
+def load_policy():
+    try:
+        with open(POLICY_FILE, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def policy_model(policy, key, models):
+    """The model a role should point at, taken from the policy when it names
+    one that MiniMax still serves."""
+    wanted = policy.get(key)
+    if wanted and wanted in models:
+        return wanted
+    return models[0] if models else None
+
+
+def meta_for(model_id):
+    meta = dict(MODEL_META.get(model_id, DEFAULT_META))
+    policy = load_policy()
+    override = (policy.get("models") or {}).get(model_id)
+    if override:
+        meta.update(override)
+    return meta
+
+
+def api_key():
+    """The MiniMax key, from the Claude profile, the Grok config or the env."""
+    if os.environ.get("MINIMAX_API_KEY"):
+        return os.environ["MINIMAX_API_KEY"]
+    helper = os.path.join(HOME, ".claude", "api-key.sh")
+    if os.path.isfile(helper):
+        try:
+            out = subprocess.run(
+                [helper], capture_output=True, text=True, timeout=10
+            ).stdout.strip()
+            if out:
+                return out
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        with open(GROK_CONFIG, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        match = re.search(r'api_key\s*=\s*"([^"]+)"', text)
+        if match:
+            return match.group(1)
+    except OSError:
+        pass
+    return ""
+
+
+def fetch_models(base_url, key):
+    """The model ids MiniMax serves, newest first."""
+    request = urllib.request.Request(
+        base_url.rstrip("/") + "/v1/models", headers={"Authorization": "Bearer " + key}
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read())
+    models = []
+    for entry in payload.get("data") or []:
+        model_id = entry.get("id")
+        if model_id:
+            models.append((model_id, entry.get("created", 0)))
+    models.sort(key=lambda pair: pair[1], reverse=True)
+    return [model_id for model_id, _ in models]
+
+
+def verify_model(model_id, key, base_url=ANTHROPIC_BASE):
+    """Ask the Anthropic-compatible endpoint for one token from a model."""
+    body = json.dumps(
+        {
+            "model": model_id,
+            "max_tokens": 4,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+    ).encode()
+    request = urllib.request.Request(
+        base_url.rstrip("/") + "/v1/messages",
+        data=body,
+        headers={
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            payload = json.loads(response.read())
+        return payload.get("model") == model_id, payload.get("model", "?")
+    except urllib.error.HTTPError as error:
+        return False, f"HTTP {error.code}"
+    except Exception as error:  # noqa: BLE001 - reported, not raised
+        return False, str(error)[:80]
+
+
+def current_models(models):
+    """Split the served list into what the profile offers and what it keeps."""
+    pattern = load_policy().get("legacy_pattern")
+    legacy_re = re.compile(pattern) if pattern else LEGACY_PATTERN
+    offered = [m for m in models if not legacy_re.match(m)]
+    legacy = [m for m in models if legacy_re.match(m)]
+    return offered or models, legacy
+
+
+def backup(path):
+    if os.path.isfile(path):
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, f"{path}.{stamp}.bak")
+
+
+def write_atomic(path, text):
+    backup(path)
+    tmp = f"{path}.mmsync.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+# --- mcode: ~/.minimax/config.yaml ---------------------------------------
+
+
+def yaml_indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def find_key(lines, key, indent, start=0):
+    pattern = re.compile(r"^ {%d}%s:\s*$" % (indent, re.escape(key)))
+    for index in range(start, len(lines)):
+        if pattern.match(lines[index]):
+            return index
+    return -1
+
+
+def block_end(lines, start, indent):
+    """The first line after `start` that leaves the block at `indent`."""
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if yaml_indent(line) <= indent:
+            return index
+    return len(lines)
+
+
+def split_entries(lines, indent):
+    """Split a mapping body into {name: [lines]} by its first-level keys."""
+    entries = {}
+    name = None
+    for line in lines:
+        if not line.strip():
+            continue
+        current = yaml_indent(line)
+        if current == indent:
+            match = re.match(r"^ {%d}([^:#]+):\s*$" % indent, line)
+            if match:
+                name = match.group(1).strip()
+                entries[name] = [line]
+                continue
+        if name is not None:
+            entries[name].append(line)
+    return entries
+
+
+def model_entry_yaml(model_id):
+    """A model entry for a model mcode has not seen before."""
+    meta = meta_for(model_id)
+    windows = meta.get("windows") or [meta["context"]]
+    lines = [
+        f"      {model_id}:",
+        f"        name: {model_id}",
+        "        attachment: true",
+        "        reasoning: true",
+        "        temperature: true",
+        "        tool_call: true",
+        "        limit:",
+        f"          context: {meta['context']}",
+        f"          output: {meta['output']}",
+        "        modalities:",
+        "          input:",
+        "            - text",
+        "            - image",
+        "            - video",
+        "          output:",
+        "            - text",
+        "        options:",
+        "          reasoningSummary: auto",
+        "        variants:",
+        "          none-thinking:",
+        "            thinking:",
+        "              type: disabled",
+        "          thinking:",
+        "            thinking:",
+        "              type: adaptive",
+        "        thinking_config:",
+        "          mode: switchable",
+        "          default_value: 'true'",
+        "        contextWindowOptions:",
+    ]
+    for window in windows:
+        lines.append(f"          - {window}")
+    lines.append("        contextWindowOptionHints:")
+    for window in windows:
+        if window > meta["context"]:
+            lines.append(f"          '{window}': higher_usage")
+    return lines
+
+
+def sync_mcode(models, legacy, dry_run):
+    if not os.path.isfile(MCODE_CONFIG):
+        return "mcode: no config at " + MCODE_CONFIG
+    with open(MCODE_CONFIG, "r", encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+
+    provider = find_key(lines, "provider", 0)
+    if provider < 0:
+        return "mcode: no provider block"
+    minimax = find_key(lines, "minimax", 2, provider)
+    if minimax < 0:
+        return "mcode: no provider.minimax block"
+    models_key = find_key(lines, "models", 4, minimax)
+    if models_key < 0:
+        return "mcode: no provider.minimax.models block"
+
+    end = block_end(lines, models_key, 4)
+    body = lines[models_key + 1 : end]
+    entries = split_entries(body, 6)
+
+    changes = []
+    served = set(models) | set(legacy)
+    for name in list(entries):
+        if name not in served:
+            changes.append(f"mcode: drop model {name}")
+            del entries[name]
+    for model_id in models:
+        if model_id not in entries:
+            entries[model_id] = model_entry_yaml(model_id)
+            changes.append(f"mcode: add model {model_id}")
+
+    rebuilt = []
+    for name, entry_lines in entries.items():
+        rebuilt.extend(entry_lines)
+    lines[models_key + 1 : end] = rebuilt
+
+    # model_order and whitelist follow the served list
+    for key in ("model_order", "whitelist"):
+        index = find_key(lines, key, 4, minimax)
+        if index < 0:
+            continue
+        stop = block_end(lines, index, 4)
+        lines[index + 1 : stop] = [f"      - {m}" for m in models]
+
+    default_index = find_key(lines, "defaultModel", 0)
+    if default_index >= 0:
+        current = lines[default_index].split(":", 1)[1].strip()
+        wanted = policy_model(load_policy(), "default_model", models) or models[0]
+        if current.split("/")[-1] not in models:
+            lines[default_index] = f"defaultModel: minimax/{wanted}"
+            changes.append(f"mcode: default model {current} -> {wanted}")
+
+    if changes and not dry_run:
+        write_atomic(MCODE_CONFIG, "\n".join(lines) + "\n")
+    return "\n".join(changes) if changes else "mcode: already current"
+
+
+# --- claude: ~/.claude/settings.json --------------------------------------
+
+
+def sync_claude(models, legacy, dry_run):
+    if not os.path.isfile(CLAUDE_SETTINGS):
+        return "claude: no settings at " + CLAUDE_SETTINGS
+    with open(CLAUDE_SETTINGS, "r", encoding="utf-8") as fh:
+        settings = json.load(fh)
+
+    changes = []
+    options = []
+    for model_id in models:
+        meta = meta_for(model_id)
+        window = meta.get("context", 512000)
+        label = model_id.replace("MiniMax-", "")
+        options.append(
+            {
+                "model": model_id,
+                "label": label,
+                "description": f"{window // 1000}K context",
+            }
+        )
+    picker = settings.get("modelPicker") or {}
+    if picker.get("options") != options or not picker.get("replaceBuiltInOptions"):
+        changes.append("claude: model picker updated")
+        settings["modelPicker"] = {"options": options, "replaceBuiltInOptions": True}
+
+    policy = load_policy()
+    default_model = policy_model(policy, "default_model", models) or models[0]
+    if settings.get("model") != default_model:
+        changes.append(f"claude: model {settings.get('model')} -> {default_model}")
+        settings["model"] = default_model
+
+    env = settings.setdefault("env", {})
+    mapping = {
+        "ANTHROPIC_MODEL": default_model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": policy_model(policy, "opus", models),
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": policy_model(policy, "sonnet", models),
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": policy_model(policy, "haiku", models),
+    }
+    for key, value in mapping.items():
+        if env.get(key) != value:
+            changes.append(f"claude: {key} {env.get(key)} -> {value}")
+            env[key] = value
+
+    # Claude Code assumes a 200k window for a model it does not know, so the
+    # real one has to be declared or the session compacts far too early.
+    max_window = max(meta_for(default_model).get("windows") or [512000])
+    if env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(max_window):
+        changes.append(
+            f"claude: max context {env.get('CLAUDE_CODE_MAX_CONTEXT_TOKENS')} -> {max_window}"
+        )
+        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_window)
+
+    compact = policy.get("compact_window") or int(max_window * 0.8)
+    if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(compact):
+        changes.append(
+            f"claude: compact window {env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')} -> {compact}"
+        )
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact)
+
+    if changes and not dry_run:
+        write_atomic(CLAUDE_SETTINGS, json.dumps(settings, indent=2) + "\n")
+    return "\n".join(changes) if changes else "claude: already current"
+
+
+# --- grok: ~/.grok/config.toml --------------------------------------------
+
+
+def toml_block(text, name):
+    """The lines of a [table] block, without its header."""
+    match = re.search(rf"^\[{re.escape(name)}\]\s*$", text, re.M)
+    if not match:
+        return None
+    start = match.end()
+    following = re.search(r"^\[", text[start:], re.M)
+    end = start + following.start() if following else len(text)
+    return text[start:end]
+
+
+def grok_model_block(model_id, template):
+    meta = meta_for(model_id)
+    fields = {
+        "model": model_id,
+        "base_url": template.get("base_url", DEFAULT_BASE_URL + "/v1"),
+        "name": model_id,
+        "api_key": template.get("api_key", ""),
+        "api_backend": template.get("api_backend", "chat_completions"),
+        "context_window": str(meta["context"]),
+        "max_completion_tokens": str(meta["output"]),
+    }
+    lines = [f"[model.{model_id}]"]
+    for key, value in fields.items():
+        lines.append(f'{key} = "{value}"')
+    windows = meta.get("windows") or []
+    if len(windows) > 1:
+        lines.append("context_windows = [" + ", ".join(str(w) for w in windows) + "]")
+    return "\n".join(lines) + "\n"
+
+
+def sync_grok(models, legacy, dry_run):
+    if not os.path.isfile(GROK_CONFIG):
+        return "grok: no config at " + GROK_CONFIG
+    with open(GROK_CONFIG, "r", encoding="utf-8") as fh:
+        text = fh.read()
+
+    changes = []
+    template = {}
+    for candidate in ("minimax", "minimax-m3-1-flash", "minimax-m2-7"):
+        block = toml_block(text, f"model.{candidate}")
+        if block:
+            for key in ("base_url", "api_key", "api_backend"):
+                match = re.search(rf'^{key}\s*=\s*"([^"]*)"', block, re.M)
+                if match:
+                    template[key] = match.group(1)
+            break
+
+    for model_id in models:
+        slug = re.sub(r"[^a-z0-9]+", "-", model_id.lower())
+        if f"[model.{slug}]" in text:
+            continue
+        block = grok_model_block(model_id, template)
+        text = text.rstrip("\n") + "\n\n" + block
+        changes.append(f"grok: add model.{slug}")
+
+    for model_id in legacy:
+        slug = re.sub(r"[^a-z0-9]+", "-", model_id.lower())
+        if f"[model.{slug}]" in text:
+            changes.append(f"grok: model.{slug} is legacy, still configured")
+
+    allowed = re.search(r"^allowed_models\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    if allowed and '"MiniMax*"' not in allowed.group(1):
+        text = text[: allowed.start()] + 'allowed_models = ["MiniMax*"]' + text[
+            allowed.end() :
+        ]
+        changes.append("grok: allowed_models -> [\"MiniMax*\"]")
+
+    if changes and not dry_run:
+        write_atomic(GROK_CONFIG, text)
+    return "\n".join(changes) if changes else "grok: already current"
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Keep the agents' MiniMax model lists current"
+    )
+    parser.add_argument("--check", action="store_true", help="report drift only")
+    parser.add_argument("--dry-run", action="store_true", help="show the changes")
+    parser.add_argument("--verify", action="store_true", help="ping every model")
+    parser.add_argument(
+        "--only",
+        default="mcode,claude",
+        help="comma separated targets: mcode, claude, grok",
+    )
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    args = parser.parse_args()
+
+    key = api_key()
+    if not key:
+        print("no MiniMax key found (set MINIMAX_API_KEY)", file=sys.stderr)
+        return 2
+
+    try:
+        served = fetch_models(args.base_url, key)
+    except Exception as error:  # noqa: BLE001 - reported, not raised
+        print(f"could not read the model list: {error}", file=sys.stderr)
+        return 2
+
+    models, legacy = current_models(served)
+    print(f"MiniMax serves {len(served)} models; offering {len(models)}:")
+    for model_id in models:
+        meta = meta_for(model_id)
+        window = max(meta.get("windows") or [meta["context"]])
+        print(f"  {model_id:26} {window // 1000}K context")
+    if legacy:
+        print("kept for compatibility, not offered: " + ", ".join(legacy))
+
+    if args.verify:
+        for model_id in served:
+            ok, detail = verify_model(model_id, key)
+            print(f"  verify {model_id:26} {'ok' if ok else 'FAILED: ' + detail}")
+
+    targets = [t.strip() for t in args.only.split(",") if t.strip()]
+    dry_run = args.dry_run or args.check
+    reports = []
+    if "mcode" in targets:
+        reports.append(sync_mcode(models, legacy, dry_run))
+    if "claude" in targets:
+        reports.append(sync_claude(models, legacy, dry_run))
+    if "grok" in targets:
+        reports.append(sync_grok(models, legacy, dry_run))
+
+    drifted = False
+    print()
+    for report in reports:
+        for line in report.splitlines():
+            if line and not line.endswith("already current"):
+                drifted = True
+            print(line)
+
+    if args.check and drifted:
+        return 1
+    if not args.check and not args.dry_run and drifted:
+        print("\napplied. backups sit next to each file as *.bak.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

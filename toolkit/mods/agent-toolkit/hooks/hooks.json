@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT:-$HOME/.minimax-tools/mods/agent-toolkit}/hooks/session-context.sh\"",
+            "timeout": 10,
+            "statusMessage": "Loading file index..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT:-$HOME/.minimax-tools/mods/agent-toolkit}/hooks/clauditor-post-tool-use.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}
