@@ -93,14 +93,14 @@ cp "$HERE/profile/mm" "$HOME/.local/bin/mm"
 chmod +x "$HOME/.local/bin/mm"
 info "$HOME/.local/bin/mm"
 
-# --- 4. the settings ------------------------------------------------------
+# --- 4. the shared mods (rules, hooks, skills, themes) --------------------
+say "Installing the shared mods"
+"$TOOLS/install-mods.sh"
+
+# --- 5. the settings ------------------------------------------------------
 say "Pointing Claude Code at MiniMax"
 
 python3 "$HERE/setup/patch-settings.py" "$PROFILE/settings.json" "$TOOLS/models-policy.json"
-
-# --- 5. the shared mods ---------------------------------------------------
-say "Installing the shared mods"
-"$TOOLS/install-mods.sh"
 
 # --- 6. the daily sync ----------------------------------------------------
 say "Scheduling the daily model sync"

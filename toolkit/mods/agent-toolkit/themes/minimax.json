@@ -1,0 +1,15 @@
+{
+  "name": "MiniMax",
+  "base": "dark",
+  "overrides": {
+    "claude": "rgb(255,97,93)",
+    "claudeShimmer": "rgb(255,146,143)",
+    "clawd_body": "rgb(255,97,93)",
+    "briefLabelClaude": "rgb(255,97,93)",
+    "orange_FOR_SUBAGENTS_ONLY": "rgb(255,97,93)",
+    "fastMode": "rgb(255,97,93)",
+    "fastModeShimmer": "rgb(255,146,143)",
+    "background": "rgb(245,44,107)",
+    "clawd_background": "rgb(0,0,0)"
+  }
+}

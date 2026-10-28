@@ -58,6 +58,7 @@ settings["modelPicker"] = {"options": options, "replaceBuiltInOptions": True}
 settings["apiKeyHelper"] = os.path.join(
     os.path.dirname(settings_path), "api-key.sh"
 )
+settings["theme"] = "custom:minimax"
 settings["statusLine"] = {
     "type": "command",
     "command": "sh ~/.claude/statusline.sh",

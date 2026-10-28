@@ -6,11 +6,14 @@ name. Works on Linux and macOS. Nothing here patches the Claude Code binary.
 What you get:
 
 - `mm` — Claude Code pointed at MiniMax's API. The agent introduces itself as
-  MiniMax Code and runs on `MiniMax-M3` (1M tokens of context) or
-  `MiniMax-M3.1-Flash`.
-- A status row at the bottom of the screen: `MiniMax | M3 | 63 tok/s | 14% ctx`,
-  with MiniMax's coral on the label and model name and Claude Code's own theme
-  for everything else.
+  MiniMax Code and runs on `MiniMax-M3.1-Flash` by default (1M tokens of
+  context), with `MiniMax-M3` available as the deeper model.
+- A status row at the bottom of the screen: `MiniMax | M3.1-Flash | 63 tok/s |
+  14% ctx`, with MiniMax's coral on the label and model name and Claude Code's
+  own theme for everything else.
+- Two extra themes for `/theme`: **MiniMax** (Claude Code's own dark theme with
+  the orange swapped for MiniMax's pink/red) and **MCode** (MiniMax Code's
+  dark slate and sky blue).
 - A daily job that reads MiniMax's model list and keeps your settings current
   with whatever MiniMax is serving.
 - A shared skill store, so a skill written once is available to every agent on
@@ -76,6 +79,36 @@ If `$HOME/.local/bin` is not on your PATH, add it:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # Linux
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc    # macOS
 ```
+
+## Themes
+
+Claude Code keeps its own theme. Two more come with this setup, both under
+`~/.claude/themes`:
+
+| Theme | What it is |
+|---|---|
+| **MiniMax** | Claude Code's dark theme exactly, with the orange swapped for MiniMax's pink/red (`#ff615d`). The default. |
+| **MCode** | MiniMax Code's look: dark slate (`#2a2e3a`) with sky blue accents, sampled from its own splash screen. |
+
+Pick one with `/theme` inside Claude Code, or set it in
+`~/.claude/settings.json`:
+
+```json
+"theme": "custom:minimax"
+```
+
+A theme file is small:
+
+```json
+{
+  "name": "MiniMax",
+  "base": "dark",
+  "overrides": { "claude": "rgb(255,97,93)" }
+}
+```
+
+`base` is one of Claude Code's built-in themes, and `overrides` replaces only
+the colours you name.
 
 ## Keeping it current
 

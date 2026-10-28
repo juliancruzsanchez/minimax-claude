@@ -1,12 +1,13 @@
 #!/bin/sh
 # Install the shared agent mods into Claude Code.
 #
-#   ~/.minimax-tools/mods/agent-toolkit   the bundle: rules, hooks, skills
+#   ~/.minimax-tools/mods/agent-toolkit   the bundle: rules, hooks, themes
+#   ~/.minimax-tools/skills                the shared skill store
 #
-# The bundle carries both plugin manifests, so the same directory works for
-# Claude Code (.claude-plugin) and for MiniMax Code (.minimax-plugin) if it
-# is ever installed there. The skills inside point at the shared store in
-# ~/.agents/skills, which every agent on this machine already reads.
+# The skills are copied into ~/.agents/skills, the store every agent on the
+# machine reads, and linked into Claude Code's own skills directory. The
+# bundle carries both plugin manifests, so the same folder works for Claude
+# Code and for MiniMax Code.
 #
 # Running it again is safe: every step replaces what it wrote before.
 set -eu
@@ -14,20 +15,41 @@ set -eu
 TOOLS="$HOME/.minimax-tools"
 BUNDLE="$TOOLS/mods/agent-toolkit"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+STORE="$HOME/.agents/skills"
 
 [ -d "$BUNDLE" ] || { echo "no bundle at $BUNDLE" >&2; exit 1; }
 
-# --- Claude Code: the bundle as a skills-dir plugin
-mkdir -p "$CLAUDE_DIR/skills"
-ln -sfn "$BUNDLE" "$CLAUDE_DIR/skills/agent-toolkit"
+# --- the shared skill store
+mkdir -p "$STORE"
+if [ -d "$TOOLS/skills" ]; then
+  for skill in "$TOOLS"/skills/*/; do
+    [ -d "$skill" ] || continue
+    name=$(basename "$skill")
+    [ -e "$STORE/$name" ] || cp -R "$skill" "$STORE/$name"
+  done
+fi
 
-# --- the shared skill store, so one copy of each skill serves every agent
-mkdir -p "$HOME/.agents/skills"
-for skill in "$HOME/.agents/skills"/*/; do
+# --- Claude Code reads its own skills directory
+mkdir -p "$CLAUDE_DIR/skills"
+for skill in "$STORE"/*/; do
+  [ -d "$skill" ] || continue
   name=$(basename "$skill")
   [ -e "$CLAUDE_DIR/skills/$name" ] || ln -s "$skill" "$CLAUDE_DIR/skills/$name"
 done
 
+# --- the bundle itself, as a skills-dir plugin
+ln -sfn "$BUNDLE" "$CLAUDE_DIR/skills/agent-toolkit"
+
+# --- the themes, so /theme lists them next to the built-in ones
+if [ -d "$BUNDLE/themes" ]; then
+  mkdir -p "$CLAUDE_DIR/themes"
+  for theme in "$BUNDLE"/themes/*.json; do
+    [ -f "$theme" ] || continue
+    cp "$theme" "$CLAUDE_DIR/themes/$(basename "$theme")"
+  done
+fi
+
 echo "installed:"
 echo "  claude  $CLAUDE_DIR/skills/agent-toolkit"
-echo "  skills  $HOME/.agents/skills (shared store)"
+echo "  themes  $CLAUDE_DIR/themes"
+echo "  skills  $STORE (shared store, $(ls -1 "$STORE" | wc -l | tr -d ' ') skills)"
