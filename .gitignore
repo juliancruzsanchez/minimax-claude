@@ -4,3 +4,6 @@ sync.log
 sync.err.log
 __pycache__/
 .DS_Store
+
+# the shared skill store ships in the zip, not in the public repo
+toolkit/skills/
