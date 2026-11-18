@@ -447,6 +447,15 @@ def sync_claude(models, legacy, dry_run):
         )
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact)
 
+    # The key lives in the key file and Claude Code reads it through
+    # apiKeyHelper. A token left in the env as well makes Claude Code warn
+    # that both are set.
+    key_file = os.path.join(HOME, ".config", "minimax", "api_key")
+    if env.get("ANTHROPIC_AUTH_TOKEN") and os.path.isfile(key_file):
+        if os.path.getsize(key_file) > 0:
+            changes.append("claude: ANTHROPIC_AUTH_TOKEN removed, apiKeyHelper serves it")
+            env.pop("ANTHROPIC_AUTH_TOKEN", None)
+
     if changes and not dry_run:
         write_atomic(CLAUDE_SETTINGS, json.dumps(settings, indent=2) + "\n")
     return "\n".join(changes) if changes else "claude: already current"

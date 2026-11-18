@@ -4,7 +4,7 @@
   "default_model": "MiniMax-M3.1-Flash[1m]",
   "opus": "MiniMax-M3[1m]",
   "sonnet": "MiniMax-M3.1-Flash[1m]",
-  "haiku": "MiniMax-M3.1-Flash[1m]",
+  "haiku": "MiniMax-M3.1-Flash",
   "default_window": 512000,
   "compact_window": 409600,
   "models": {

@@ -126,7 +126,17 @@ env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact)
 env.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
 env.setdefault("API_TIMEOUT_MS", "3000000")
 
+# The key lives in the key file and Claude Code reads it through apiKeyHelper.
+# Leaving a token in the env as well makes Claude Code warn that both are set,
+# so the token goes once the key file is there to serve it.
+key_file = os.path.join(os.path.expanduser("~"), ".config", "minimax", "api_key")
+if os.path.isfile(key_file) and os.path.getsize(key_file) > 0:
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
+
 settings["model"] = default_model
+# Claude Code 2.1 has no modelPicker setting. Its /model menu is built from
+# the role models in the env block above, so those are what the user sees and
+# picks. The list is kept here for builds that do read it.
 settings["modelPicker"] = {
     "options": options_for(model_list()),
     "replaceBuiltInOptions": True,

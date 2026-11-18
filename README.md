@@ -53,6 +53,11 @@ Then:
 mm -p "who are you?" --output-format json
 ```
 
+The toolkit carries the Unix hook file, and `install-mods.ps1` writes the
+Windows one into the installed bundle. If you update the toolkit later, run
+`install-mods.ps1` again, or the SessionStart hook goes back to calling the
+bash script and errors on every start.
+
 ### One line
 
 ```bash
@@ -139,6 +144,29 @@ A theme file is small:
 
 `base` is one of Claude Code's built-in themes, and `overrides` replaces only
 the colours you name.
+
+## Picking a model
+
+The `/model` menu is built from the role models in the `env` block, not from
+a list of models in the settings file. Claude Code 2.1 has no `modelPicker`
+setting, so writing one changes nothing. The setup therefore points the three
+roles at three different models, and the menu offers all of them:
+
+| Role | Model | Window |
+|---|---|---|
+| default | `MiniMax-M3.1-Flash[1m]` | 1M |
+| Opus | `MiniMax-M3[1m]` | 1M |
+| Sonnet | `MiniMax-M3.1-Flash[1m]` | 1M |
+| Haiku | `MiniMax-M3.1-Flash` | 512K |
+
+Pick the Haiku row for the 512K window, the default or Sonnet row for 1M.
+The roles are set in `models-policy.json`.
+
+`availableModels` and `modelOverrides` are the real settings keys, but they
+work the other way around: `availableModels` is an allowlist of Claude Code's
+own model ids, and `modelOverrides` maps those ids to a provider id, which is
+how Bedrock and Vertex are reached. Mapping Claude's ids onto MiniMax ids
+would make the menu show Claude names, not MiniMax ones.
 
 ## Keeping it current
 
