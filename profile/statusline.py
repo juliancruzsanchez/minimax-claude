@@ -4,10 +4,14 @@
 Claude Code keeps its own theme; this only paints the row it prints at the
 bottom of the screen. The model name and the MiniMax label wear the brand
 coral, everything else stays in the colours the terminal already uses.
+
+The Orca bridge runs first when it is installed, so anything watching the
+Claude Code row keeps working. Then our own row prints.
 """
 
 import json
 import os
+import subprocess
 import sys
 
 ACCENT = "\033[38;2;255;97;93m"  # MiniMax coral
@@ -73,10 +77,40 @@ def session_tokens(transcript, state_path):
     return state["tokens"]
 
 
+def orca_bridge(raw):
+    """Let the Orca bridge see the payload first, when it is installed.
+
+    On Windows the bridge is claude-statusline.cmd, on the other systems it
+    is claude-statusline.sh. Both read the payload from stdin.
+    """
+    home = os.path.expanduser("~")
+    for name in ("claude-statusline.cmd", "claude-statusline.sh"):
+        path = os.path.join(home, ".orca", "agent-hooks", name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            subprocess.run(
+                [path],
+                input=raw.encode("utf-8", "replace"),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return
+
+
 def main():
+    raw = sys.stdin.read()
+
+    orca_bridge(raw)
+
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(raw)
     except (ValueError, OSError):
+        return
+    if not isinstance(payload, dict):
         return
 
     model = (payload.get("model") or {}).get("display_name") or "MiniMax"

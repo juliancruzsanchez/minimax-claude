@@ -1,13 +1,16 @@
 # MiniMax Code
 
 Claude Code's terminal agent, running on MiniMax's models, under MiniMax's
-name. Works on Linux and macOS. Nothing here patches the Claude Code binary.
+name. Works on Linux, macOS and Windows. Nothing here patches the Claude Code
+binary.
 
 What you get:
 
 - `mm` — Claude Code pointed at MiniMax's API. The agent introduces itself as
   MiniMax Code and runs on `MiniMax-M3.1-Flash` by default (1M tokens of
   context), with `MiniMax-M3` available as the deeper model.
+- A choice of context windows: the model list offers `MiniMax-M3.1-Flash`
+  (512K) next to `MiniMax-M3.1-Flash[1m]` (1M), so `/model` can pick either.
 - A status row at the bottom of the screen: `MiniMax | M3.1-Flash | 63 tok/s |
   14% ctx`, with MiniMax's coral on the label and model name and Claude Code's
   own theme for everything else.
@@ -22,6 +25,38 @@ What you get:
 ## Install
 
 You need a MiniMax API key (platform.minimax.io → API keys) and Claude Code.
+
+### Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Or, from a download, in a PowerShell window:
+
+```powershell
+.\bootstrap.ps1
+```
+
+The installer asks for the key, or takes it from `-ApiKey`, from
+`MINIMAX_API_KEY`, or from the key Claude Code already uses. It copies the
+toolkit to `%USERPROFILE%\.minimax-tools`, the profile files to
+`%USERPROFILE%\.claude` (anything already there is kept as a `.bak` file),
+merges the MiniMax settings into `%USERPROFILE%\.claude\settings.json`, puts
+`mm.cmd` in `%USERPROFILE%\.local\bin` and adds that folder to your PATH,
+installs the shared skills and the mod bundle, and schedules the daily sync
+as a Windows scheduled task at 07:23.
+
+Then:
+
+```powershell
+mm -p "who are you?" --output-format json
+```
+
+The toolkit carries the Unix hook file, and `install-mods.ps1` writes the
+Windows one into the installed bundle. If you update the toolkit later, run
+`install-mods.ps1` again, or the SessionStart hook goes back to calling the
+bash script and errors on every start.
 
 ### One line
 
@@ -110,6 +145,29 @@ A theme file is small:
 `base` is one of Claude Code's built-in themes, and `overrides` replaces only
 the colours you name.
 
+## Picking a model
+
+The `/model` menu is built from the role models in the `env` block, not from
+a list of models in the settings file. Claude Code 2.1 has no `modelPicker`
+setting, so writing one changes nothing. The setup therefore points the three
+roles at three different models, and the menu offers all of them:
+
+| Role | Model | Window |
+|---|---|---|
+| default | `MiniMax-M3.1-Flash[1m]` | 1M |
+| Opus | `MiniMax-M3[1m]` | 1M |
+| Sonnet | `MiniMax-M3.1-Flash[1m]` | 1M |
+| Haiku | `MiniMax-M3.1-Flash` | 512K |
+
+Pick the Haiku row for the 512K window, the default or Sonnet row for 1M.
+The roles are set in `models-policy.json`.
+
+`availableModels` and `modelOverrides` are the real settings keys, but they
+work the other way around: `availableModels` is an allowlist of Claude Code's
+own model ids, and `modelOverrides` maps those ids to a provider id, which is
+how Bedrock and Vertex are reached. Mapping Claude's ids onto MiniMax ids
+would make the menu show Claude names, not MiniMax ones.
+
 ## Keeping it current
 
 ```bash
@@ -130,14 +188,30 @@ The daily job runs it at 07:23 and writes to `~/.minimax-tools/sync.log`.
 ## Two things that bite
 
 **Use the exact model id.** MiniMax answers a model name it does not know with
-`MiniMax-M3.1-Flash`. An alias such as `MiniMax-M3[1m]` is not a MiniMax id, so
-the request quietly lands on the Flash model instead of the one you asked for.
+`MiniMax-M3.1-Flash`. The plain ids are `MiniMax-M3` and `MiniMax-M3.1-Flash`.
 
 **The context window has to be declared.** Claude Code assumes 200,000 tokens
-for a model it does not know and starts compacting early. The setup sets
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS` to 1,000,000 and compacts at 800,000, which is
-inside what MiniMax actually serves (both models were measured at 900,000 input
-tokens).
+for a model it does not know and starts compacting early. The setup declares
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` (512,000 by default) and compacts at 80% of
+it, which is inside what MiniMax actually serves (both models were measured at
+900,000 input tokens).
+
+**`[1m]` is a Claude Code convention, `[512k]` is not a thing.** Claude Code
+reads a trailing `[1m]` on a model id as "give this one the million token
+window", and it sends the plain id to the API. The API never sees the suffix.
+So `MiniMax-M3.1-Flash[1m]` is a real choice, and the plain
+`MiniMax-M3.1-Flash` runs with the declared window.
+
+The API rejects a `[512k]` suffix outright: `400 invalid params, unknown model
+'MiniMax-M3.1-Flash[512k]'`. The 512K window is not a model, it is the number
+in `CLAUDE_CODE_MAX_CONTEXT_TOKENS`. That is why the picker offers the plain
+id next to the `[1m]` one, and why the declared window is the smaller of the
+two: pick the plain id for 512K, pick the `[1m]` id for 1M.
+
+A 1M session still compacts at the declared compaction point, which is set for
+the 512K window. Raise `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in
+`~/.claude/settings.json` to `800000` if you want a 1M session to run longer
+before it compacts.
 
 ## Files it touches
 
@@ -156,8 +230,12 @@ tokens).
 ~/.config/minimax/api_key    your key, mode 600
 ```
 
+On Windows the same set lives under `%USERPROFILE%`, with `.cmd` and `.py`
+where the shell scripts are: `mm.cmd`, `api-key.py`, `statusline.cmd`,
+`minimax-sync.cmd` and `minimax-sync-daily.cmd`.
+
 Nothing in `~/.claude/settings.json` holds the key: Claude Code reads it through
-`apiKeyHelper`, which calls `~/.claude/api-key.sh`.
+`apiKeyHelper`, which calls `~/.claude/api-key.sh` (or `api-key.py` on Windows).
 
 ## The mod bundle
 
@@ -191,6 +269,14 @@ On Linux, remove the cron line with:
 
 ```bash
 crontab -l | grep -v 'minimax-sync' | crontab -
+```
+
+On Windows, remove the scheduled task with:
+
+```powershell
+schtasks /Delete /TN "MiniMax Code Model Sync" /F
+Remove-Item -Recurse -Force $env:USERPROFILE\.minimax-tools
+Remove-Item -Force $env:USERPROFILE\.local\bin\mm.cmd
 ```
 
 ## If something is wrong
