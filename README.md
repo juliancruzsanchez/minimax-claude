@@ -1,13 +1,17 @@
 # MiniMax Code
 
 Claude Code's terminal agent, running on MiniMax's models, under MiniMax's
-name. Works on Linux and macOS. Nothing here patches the Claude Code binary.
+name. Works on Linux, macOS and Windows. Nothing here patches the Claude Code
+binary.
 
 What you get:
 
 - `mm` — Claude Code pointed at MiniMax's API. The agent introduces itself as
   MiniMax Code and runs on `MiniMax-M3.1-Flash` by default (1M tokens of
   context), with `MiniMax-M3` available as the deeper model.
+- A choice of context windows: the model list offers `MiniMax-M3.1-Flash` and
+  `MiniMax-M3.1-Flash[512k]` next to each other, so `/model` can pick a
+  pinned 512K window or the full one.
 - A status row at the bottom of the screen: `MiniMax | M3.1-Flash | 63 tok/s |
   14% ctx`, with MiniMax's coral on the label and model name and Claude Code's
   own theme for everything else.
@@ -22,6 +26,33 @@ What you get:
 ## Install
 
 You need a MiniMax API key (platform.minimax.io → API keys) and Claude Code.
+
+### Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Or, from a download, in a PowerShell window:
+
+```powershell
+.\bootstrap.ps1
+```
+
+The installer asks for the key, or takes it from `-ApiKey`, from
+`MINIMAX_API_KEY`, or from the key Claude Code already uses. It copies the
+toolkit to `%USERPROFILE%\.minimax-tools`, the profile files to
+`%USERPROFILE%\.claude` (anything already there is kept as a `.bak` file),
+merges the MiniMax settings into `%USERPROFILE%\.claude\settings.json`, puts
+`mm.cmd` in `%USERPROFILE%\.local\bin` and adds that folder to your PATH,
+installs the shared skills and the mod bundle, and schedules the daily sync
+as a Windows scheduled task at 07:23.
+
+Then:
+
+```powershell
+mm -p "who are you?" --output-format json
+```
 
 ### One line
 
@@ -139,6 +170,11 @@ for a model it does not know and starts compacting early. The setup sets
 inside what MiniMax actually serves (both models were measured at 900,000 input
 tokens).
 
+**The window suffix is part of the id.** `[512k]` and `[1m]` are not a
+separate model: they are the same model asked for with a pinned context
+window. `models-policy.json` lists them under `variants`, and the model picker
+offers the plain id and the variants next to each other.
+
 ## Files it touches
 
 ```
@@ -156,8 +192,12 @@ tokens).
 ~/.config/minimax/api_key    your key, mode 600
 ```
 
+On Windows the same set lives under `%USERPROFILE%`, with `.cmd` and `.py`
+where the shell scripts are: `mm.cmd`, `api-key.py`, `statusline.cmd`,
+`minimax-sync.cmd` and `minimax-sync-daily.cmd`.
+
 Nothing in `~/.claude/settings.json` holds the key: Claude Code reads it through
-`apiKeyHelper`, which calls `~/.claude/api-key.sh`.
+`apiKeyHelper`, which calls `~/.claude/api-key.sh` (or `api-key.py` on Windows).
 
 ## The mod bundle
 
@@ -191,6 +231,14 @@ On Linux, remove the cron line with:
 
 ```bash
 crontab -l | grep -v 'minimax-sync' | crontab -
+```
+
+On Windows, remove the scheduled task with:
+
+```powershell
+schtasks /Delete /TN "MiniMax Code Model Sync" /F
+Remove-Item -Recurse -Force $env:USERPROFILE\.minimax-tools
+Remove-Item -Force $env:USERPROFILE\.local\bin\mm.cmd
 ```
 
 ## If something is wrong

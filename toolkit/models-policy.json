@@ -1,11 +1,12 @@
 {
   "_comment": "Policy for minimax-sync. Edit freely: minimax-sync reads it on every run.",
-  "default_model": "MiniMax-M3.1-Flash",
+  "_variants": "Window variants of a model id, offered next to the plain one. The suffix is part of the model id MiniMax is asked for, so [1m] and [512k] pin the context window.",
+  "default_model": "MiniMax-M3.1-Flash[1m]",
   "opus": "MiniMax-M3",
-  "sonnet": "MiniMax-M3.1-Flash",
-  "haiku": "MiniMax-M3.1-Flash",
+  "sonnet": "MiniMax-M3.1-Flash[1m]",
+  "haiku": "MiniMax-M3.1-Flash[1m]",
   "models": {
-    "MiniMax-M3": {
+    "MiniMax-M3.1-Flash": {
       "context": 512000,
       "output": 128000,
       "windows": [
@@ -13,7 +14,7 @@
         1000000
       ]
     },
-    "MiniMax-M3.1-Flash": {
+    "MiniMax-M3": {
       "context": 512000,
       "output": 128000,
       "windows": [
@@ -35,6 +36,28 @@
         204800
       ]
     }
+  },
+  "variants": {
+    "MiniMax-M3.1-Flash": [
+      {
+        "suffix": "[512k]",
+        "context": 512000
+      },
+      {
+        "suffix": "[1m]",
+        "context": 1000000
+      }
+    ],
+    "MiniMax-M3": [
+      {
+        "suffix": "[512k]",
+        "context": 512000
+      },
+      {
+        "suffix": "[1m]",
+        "context": 1000000
+      }
+    ]
   },
   "legacy_pattern": "^MiniMax-M2(\\.\\d+)?(-highspeed)?$"
 }

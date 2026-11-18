@@ -1,0 +1,11 @@
+# Keep the shell scripts and the Python tools working when the repository is
+# checked out on Windows, and keep the Windows scripts working on the other
+# systems.
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+toolkit/minimax-sync text eol=lf
+toolkit/mods/agent-toolkit/hooks/clauditor-post-tool-use.mjs text eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
