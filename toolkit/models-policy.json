@@ -1,10 +1,12 @@
 {
   "_comment": "Policy for minimax-sync. Edit freely: minimax-sync reads it on every run.",
-  "_variants": "Window variants of a model id, offered next to the plain one. The suffix is part of the model id MiniMax is asked for, so [1m] and [512k] pin the context window.",
+  "_variants": "Window variants of a model id, offered next to the plain one. Claude Code reads a trailing [1m] as its 1M context convention, so that id runs with a million tokens. The plain id runs with the declared window, which is default_window below.",
   "default_model": "MiniMax-M3.1-Flash[1m]",
-  "opus": "MiniMax-M3",
+  "opus": "MiniMax-M3[1m]",
   "sonnet": "MiniMax-M3.1-Flash[1m]",
   "haiku": "MiniMax-M3.1-Flash[1m]",
+  "default_window": 512000,
+  "compact_window": 409600,
   "models": {
     "MiniMax-M3.1-Flash": {
       "context": 512000,
@@ -40,19 +42,11 @@
   "variants": {
     "MiniMax-M3.1-Flash": [
       {
-        "suffix": "[512k]",
-        "context": 512000
-      },
-      {
         "suffix": "[1m]",
         "context": 1000000
       }
     ],
     "MiniMax-M3": [
-      {
-        "suffix": "[512k]",
-        "context": 512000
-      },
       {
         "suffix": "[1m]",
         "context": 1000000

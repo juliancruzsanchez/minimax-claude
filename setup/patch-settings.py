@@ -67,6 +67,22 @@ def max_window(model_id):
     return max(windows_for(model_id) or [512000])
 
 
+def context_for(model_id):
+    """The window a model id runs with: the variant's own, or the base one.
+
+    Claude Code reads a trailing [1m] as its 1M context convention, so that
+    id runs with a million tokens whatever is declared. The plain id runs with
+    the declared window.
+    """
+    base, suffix = split_variant(model_id)
+    meta = models.get(base) or {}
+    if suffix:
+        for entry in variants.get(base) or []:
+            if entry.get("suffix") == suffix:
+                return int(entry.get("context") or meta.get("context", 512000))
+    return int(meta.get("context", 512000))
+
+
 def model_list():
     """The plain model ids, each followed by its window variants."""
     listed = []
@@ -83,7 +99,7 @@ def options_for(model_ids):
     options = []
     for model_id in model_ids:
         base, suffix = split_variant(model_id)
-        window = max_window(model_id)
+        window = context_for(model_id)
         options.append(
             {
                 "model": model_id,
@@ -94,8 +110,10 @@ def options_for(model_ids):
     return options
 
 
-max_window_for_default = max_window(default_model)
-compact = policy.get("compact_window") or int(max_window_for_default * 0.8)
+# The window the plain model ids run with. The [1m] ids raise it to a million
+# on their own, so declaring the smaller one gives /model a real choice.
+declared_window = int(policy.get("default_window") or max_window(default_model))
+compact = policy.get("compact_window") or int(declared_window * 0.8)
 
 env = settings.setdefault("env", {})
 env["ANTHROPIC_BASE_URL"] = "https://api.minimax.io/anthropic"
@@ -103,7 +121,7 @@ env["ANTHROPIC_MODEL"] = default_model
 env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = opus
 env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = sonnet
 env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = haiku
-env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_window_for_default)
+env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(declared_window)
 env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact)
 env.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
 env.setdefault("API_TIMEOUT_MS", "3000000")

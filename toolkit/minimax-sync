@@ -221,7 +221,7 @@ def options_for(model_ids):
     for model_id in model_ids:
         base, suffix = split_variant(model_id)
         meta = meta_for(model_id)
-        window = max(meta.get("windows") or [meta.get("context", 512000)])
+        window = meta.get("context", 512000)
         options.append(
             {
                 "model": model_id,
@@ -427,15 +427,20 @@ def sync_claude(models, legacy, dry_run):
             env[key] = value
 
     # Claude Code assumes a 200k window for a model it does not know, so the
-    # real one has to be declared or the session compacts far too early.
-    max_window = max(meta_for(default_model).get("windows") or [512000])
-    if env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(max_window):
+    # real one has to be declared or the session compacts far too early. The
+    # plain model ids run with the declared window; the [1m] ids raise it to a
+    # million on their own, so declaring the smaller one gives /model a choice.
+    declared_window = int(
+        policy.get("default_window")
+        or max(meta_for(default_model).get("windows") or [512000])
+    )
+    if env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(declared_window):
         changes.append(
-            f"claude: max context {env.get('CLAUDE_CODE_MAX_CONTEXT_TOKENS')} -> {max_window}"
+            f"claude: max context {env.get('CLAUDE_CODE_MAX_CONTEXT_TOKENS')} -> {declared_window}"
         )
-        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_window)
+        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(declared_window)
 
-    compact = policy.get("compact_window") or int(max_window * 0.8)
+    compact = policy.get("compact_window") or int(declared_window * 0.8)
     if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(compact):
         changes.append(
             f"claude: compact window {env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')} -> {compact}"
@@ -555,7 +560,7 @@ def main():
     print(f"MiniMax serves {len(served)} models; offering {len(offered)}:")
     for model_id in offered:
         meta = meta_for(model_id)
-        window = max(meta.get("windows") or [meta["context"]])
+        window = meta.get("context", 512000)
         print(f"  {model_id:26} {window // 1000}K context")
     if legacy:
         print("kept for compatibility, not offered: " + ", ".join(legacy))

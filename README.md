@@ -9,9 +9,8 @@ What you get:
 - `mm` — Claude Code pointed at MiniMax's API. The agent introduces itself as
   MiniMax Code and runs on `MiniMax-M3.1-Flash` by default (1M tokens of
   context), with `MiniMax-M3` available as the deeper model.
-- A choice of context windows: the model list offers `MiniMax-M3.1-Flash` and
-  `MiniMax-M3.1-Flash[512k]` next to each other, so `/model` can pick a
-  pinned 512K window or the full one.
+- A choice of context windows: the model list offers `MiniMax-M3.1-Flash`
+  (512K) next to `MiniMax-M3.1-Flash[1m]` (1M), so `/model` can pick either.
 - A status row at the bottom of the screen: `MiniMax | M3.1-Flash | 63 tok/s |
   14% ctx`, with MiniMax's coral on the label and model name and Claude Code's
   own theme for everything else.
@@ -161,19 +160,30 @@ The daily job runs it at 07:23 and writes to `~/.minimax-tools/sync.log`.
 ## Two things that bite
 
 **Use the exact model id.** MiniMax answers a model name it does not know with
-`MiniMax-M3.1-Flash`. An alias such as `MiniMax-M3[1m]` is not a MiniMax id, so
-the request quietly lands on the Flash model instead of the one you asked for.
+`MiniMax-M3.1-Flash`. The plain ids are `MiniMax-M3` and `MiniMax-M3.1-Flash`.
 
 **The context window has to be declared.** Claude Code assumes 200,000 tokens
-for a model it does not know and starts compacting early. The setup sets
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS` to 1,000,000 and compacts at 800,000, which is
-inside what MiniMax actually serves (both models were measured at 900,000 input
-tokens).
+for a model it does not know and starts compacting early. The setup declares
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` (512,000 by default) and compacts at 80% of
+it, which is inside what MiniMax actually serves (both models were measured at
+900,000 input tokens).
 
-**The window suffix is part of the id.** `[512k]` and `[1m]` are not a
-separate model: they are the same model asked for with a pinned context
-window. `models-policy.json` lists them under `variants`, and the model picker
-offers the plain id and the variants next to each other.
+**`[1m]` is a Claude Code convention, `[512k]` is not a thing.** Claude Code
+reads a trailing `[1m]` on a model id as "give this one the million token
+window", and it sends the plain id to the API. The API never sees the suffix.
+So `MiniMax-M3.1-Flash[1m]` is a real choice, and the plain
+`MiniMax-M3.1-Flash` runs with the declared window.
+
+The API rejects a `[512k]` suffix outright: `400 invalid params, unknown model
+'MiniMax-M3.1-Flash[512k]'`. The 512K window is not a model, it is the number
+in `CLAUDE_CODE_MAX_CONTEXT_TOKENS`. That is why the picker offers the plain
+id next to the `[1m]` one, and why the declared window is the smaller of the
+two: pick the plain id for 512K, pick the `[1m]` id for 1M.
+
+A 1M session still compacts at the declared compaction point, which is set for
+the 512K window. Raise `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in
+`~/.claude/settings.json` to `800000` if you want a 1M session to run longer
+before it compacts.
 
 ## Files it touches
 
